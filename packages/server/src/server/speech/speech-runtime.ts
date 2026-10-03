@@ -720,10 +720,10 @@ export function createSpeechService(params: {
   return {
     resolveTurnDetection: () => turnDetectionService,
     resolveStt: () => sttService,
-    resolveSttLanguage: () => speechConfig?.sttLanguages?.voice ?? "en",
+    resolveSttLanguage: () => speechConfig?.sttLanguages?.voice ?? "auto",
     resolveTts: () => ttsService,
     resolveDictationStt: () => dictationSttService,
-    resolveDictationSttLanguage: () => speechConfig?.sttLanguages?.dictation ?? "en",
+    resolveDictationSttLanguage: () => speechConfig?.sttLanguages?.dictation ?? "auto",
     getReadiness: () => lastPublishedReadinessSnapshot ?? computeReadinessSnapshot(),
     onReadinessChange: subscribeSpeechReadiness,
     start,

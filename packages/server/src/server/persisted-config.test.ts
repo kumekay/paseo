@@ -645,6 +645,31 @@ describe("PersistedConfigSchema voice mode config", () => {
     expect(parsed.features?.voiceMode?.turnDetection?.provider).toBe("local");
   });
 
+  test("preserves JSON language lists through save and parse", () => {
+    const input = {
+      features: {
+        dictation: { stt: { language: [" ru ", "en"] } },
+        voiceMode: { stt: { language: ["ru", "en"] } },
+      },
+    };
+    const parsed = PersistedConfigSchema.parse(input);
+    const reparsed = PersistedConfigSchema.parse(JSON.parse(JSON.stringify(parsed)));
+    expect(reparsed.features?.dictation?.stt?.language).toEqual(["ru", "en"]);
+    expect(reparsed.features?.voiceMode?.stt?.language).toEqual(["ru", "en"]);
+  });
+
+  test.each([
+    { language: [] },
+    { language: ["auto", "ru"] },
+    { language: [""] },
+    { language: "ru,en" },
+  ])("rejects invalid language setting %j", ({ language }) => {
+    const result = PersistedConfigSchema.safeParse({
+      features: { dictation: { stt: { language } } },
+    });
+    expect(result.success).toBe(false);
+  });
+
   test("accepts trimmed STT language fields", () => {
     const parsed = PersistedConfigSchema.parse({
       features: {

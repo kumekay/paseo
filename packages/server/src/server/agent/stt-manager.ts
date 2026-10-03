@@ -134,7 +134,7 @@ export class STTManager {
     this.sessionId = sessionId;
     this.logger = logger.child({ module: "agent", component: "stt-manager", sessionId });
     this.resolveStt = toResolver(stt);
-    this.language = options?.language ?? "en";
+    this.language = options?.language ?? "auto";
   }
 
   public getProvider(): SpeechToTextProvider | null {

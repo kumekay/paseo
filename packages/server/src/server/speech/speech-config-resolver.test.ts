@@ -52,8 +52,8 @@ describe("resolveSpeechConfig", () => {
     expect(result.speech.local?.models.voiceTts).toBe("kokoro-en-v0_19");
     expect(result.speech.local?.models.voiceTtsSpeakerId).toBe(0);
     expect(result.speech.sttLanguages).toEqual({
-      dictation: "en",
-      voice: "en",
+      dictation: "auto",
+      voice: "auto",
     });
   });
 
@@ -163,6 +163,24 @@ describe("resolveSpeechConfig", () => {
       dictation: "es",
       voice: "es",
     });
+  });
+
+  test.each([
+    { language: "auto", resolved: "auto" },
+    { language: ["ru", "en"], resolved: "ru,en" },
+  ])("preserves language setting %s for dictation and voice", ({ language, resolved }) => {
+    const result = resolveSpeechConfig({
+      paseoHome: "/tmp/paseo-home",
+      env: { OPENAI_API_KEY: "test-key" },
+      persisted: PersistedConfigSchema.parse({
+        features: {
+          dictation: { stt: { provider: "openai", model: "gpt-transcribe", language } },
+        },
+      }),
+    });
+
+    expect(result.speech.sttLanguages).toEqual({ dictation: resolved, voice: resolved });
+    expect(result.openai?.stt?.model).toBe("gpt-transcribe");
   });
 
   test("respects disabled dictation and voice mode feature flags", () => {
