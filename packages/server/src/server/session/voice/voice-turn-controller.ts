@@ -320,7 +320,7 @@ export function createVoiceTurnController(params: {
   function createSttSession(): StreamingTranscriptionSession {
     const session = params.stt.createSession({
       logger: params.logger.child({ component: "stt" }),
-      language: params.sttLanguage ?? "en",
+      language: params.sttLanguage ?? "auto",
     });
     session.on("transcript", handleSttTranscript);
     session.on("committed", ({ segmentId }) => {

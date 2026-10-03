@@ -35,7 +35,7 @@ export interface ResolvedLocalSpeechConfig {
 export type { LocalSpeechModelId, LocalSttModelId, LocalTtsModelId };
 
 const DEFAULT_LOCAL_MODELS_SUBDIR = path.join("models", "local-speech");
-const DEFAULT_STT_LANGUAGE = "en";
+const DEFAULT_STT_LANGUAGE = "auto";
 
 export interface LocalSpeechSttLanguageConfig {
   dictation: string;
@@ -104,9 +104,14 @@ function firstDefinedValue<T>(values: Array<T | null | undefined>): T | undefine
   return undefined;
 }
 
-function firstNonEmptyString(values: Array<string | null | undefined>): string | undefined {
+// Keep JSON language lists intact in persisted config; the speech runtime uses
+// one normalized string, also shared with environment-variable overrides.
+function firstNonEmptyString(
+  values: Array<string | string[] | null | undefined>,
+): string | undefined {
   for (const value of values) {
-    const trimmed = value?.trim();
+    const language = Array.isArray(value) ? value.join(",") : value;
+    const trimmed = language?.trim();
     if (trimmed) {
       return trimmed;
     }

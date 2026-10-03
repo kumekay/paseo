@@ -157,10 +157,10 @@ describe("DictationStreamManager (provider-agnostic provider)", () => {
     return sttProvider;
   }
 
-  it("defaults to English when dictation language config is unset", async () => {
+  it("defaults to automatic detection when dictation language config is unset", async () => {
     const sttProvider = await startWithResolvedDictationLanguage({});
 
-    expect(sttProvider.lastLanguage).toBe("en");
+    expect(sttProvider.lastLanguage).toBe("auto");
   });
 
   it("uses PASEO_DICTATION_LANGUAGE when set", async () => {
@@ -180,7 +180,7 @@ describe("DictationStreamManager (provider-agnostic provider)", () => {
       } as NodeJS.ProcessEnv,
     });
 
-    expect(sttProvider.lastLanguage).toBe("en");
+    expect(sttProvider.lastLanguage).toBe("auto");
   });
 
   it("uses settings dictation STT language when env var is unset", async () => {

@@ -72,11 +72,13 @@ For multilingual local dictation, set the model to v3 — it auto-detects the la
 }
 ```
 
-The `language` field applies only to the OpenAI STT provider: set `features.dictation.stt.language` for dictation and `features.voiceMode.stt.language` for voice mode. If voice language is omitted, Paseo uses the dictation language before falling back to `en`. It has no effect on the local Parakeet models.
+The `language` field applies only to the OpenAI STT provider: set `features.dictation.stt.language` for dictation and `features.voiceMode.stt.language` for voice mode. Use `"auto"` to let OpenAI detect the spoken language without sending a language hint, or a language code such as `"ru"` to supply a hint. With `gpt-transcribe`, you can supply multiple language hints as a JSON array, such as `"language": ["ru", "en"]`. Do not put `"auto"` in a language array. Other OpenAI STT models accept only a single language hint. If voice language is omitted, Paseo uses the dictation language before falling back to `auto`. Dictation also defaults to `auto` when no language is set. It has no effect on the local Parakeet models.
+
+For multilingual OpenAI dictation, set `features.dictation.stt` to `{ "provider": "openai", "model": "gpt-transcribe", "language": "auto" }`. Set the same fields under `features.voiceMode.stt` for voice mode. This sends audio to OpenAI; an OpenAI API key with billing is required.
 
 ## OpenAI Voice Option
 
-You can switch dictation, voice STT, and voice TTS to OpenAI by setting provider fields to `openai` and providing OpenAI credentials.
+You can switch dictation, voice STT, and voice TTS to OpenAI by setting provider fields to `openai` and providing OpenAI credentials. OpenAI STT defaults to `gpt-transcribe` when no model is specified. Explicit model settings and the `STT_MODEL` environment override still take precedence.
 
 ```json
 {

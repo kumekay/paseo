@@ -15,10 +15,17 @@ import type {
 
 export type { LogprobToken, TranscriptionResult };
 
+export const DEFAULT_OPENAI_STT_MODEL = "gpt-transcribe";
+
 export interface STTConfig {
   apiKey: string;
   baseUrl?: string;
-  model?: "whisper-1" | "gpt-4o-transcribe" | "gpt-4o-mini-transcribe" | (string & {});
+  model?:
+    | "gpt-transcribe"
+    | "whisper-1"
+    | "gpt-4o-transcribe"
+    | "gpt-4o-mini-transcribe"
+    | (string & {});
   confidenceThreshold?: number; // Default: -3.0
 }
 
@@ -46,20 +53,56 @@ function isLogprobTokenArray(value: unknown): value is LogprobToken[] {
   return Array.isArray(value) && value.every((entry) => isLogprobToken(entry));
 }
 
+function buildLanguageHint(language: string, model: string) {
+  const languages = language.split(",").map((code) => code.trim());
+  const automaticLanguage = languages.length === 1 && languages[0].toLowerCase() === "auto";
+  if (automaticLanguage) {
+    return {};
+  }
+  const invalidLanguageList = languages.some(
+    (code) => code.length === 0 || code.toLowerCase() === "auto",
+  );
+  if (invalidLanguageList) {
+    throw new TypeError('Use "auto" alone or a comma-separated list of language codes');
+  }
+  if (model === "gpt-transcribe") {
+    return { languages };
+  }
+  if (languages.length > 1) {
+    throw new TypeError(`Multiple language hints require gpt-transcribe, not ${model}`);
+  }
+  return { language: languages[0] };
+}
+
+export interface TranscriptionClient {
+  create(
+    request: OpenAI.Audio.TranscriptionCreateParamsNonStreaming,
+  ): Promise<OpenAI.Audio.Transcription>;
+}
+
 export class OpenAISTT implements SpeechToTextProvider {
-  private readonly openaiClient: OpenAI;
+  private readonly transcriptions: TranscriptionClient;
   private readonly config: STTConfig;
   private readonly logger: pino.Logger;
   public readonly id = "openai" as const;
 
-  constructor(sttConfig: STTConfig, parentLogger: pino.Logger) {
+  constructor(
+    sttConfig: STTConfig,
+    parentLogger: pino.Logger,
+    transcriptions?: TranscriptionClient,
+  ) {
     this.config = sttConfig;
     this.logger = parentLogger.child({ module: "agent", provider: "openai", component: "stt" });
-    this.openaiClient = new OpenAI({
-      apiKey: sttConfig.apiKey,
-      ...(sttConfig.baseUrl ? { baseURL: sttConfig.baseUrl } : {}),
-    });
-    this.logger.info({ model: sttConfig.model || "whisper-1" }, "STT (OpenAI Whisper) initialized");
+    this.transcriptions =
+      transcriptions ??
+      new OpenAI({
+        apiKey: sttConfig.apiKey,
+        ...(sttConfig.baseUrl ? { baseURL: sttConfig.baseUrl } : {}),
+      }).audio.transcriptions;
+    this.logger.info(
+      { model: sttConfig.model ?? DEFAULT_OPENAI_STT_MODEL },
+      "STT (OpenAI) initialized",
+    );
   }
 
   public createSession(params: {
@@ -143,7 +186,7 @@ export class OpenAISTT implements SpeechToTextProvider {
             const result = await transcribeAudio(
               wav,
               "audio/wav",
-              params.language ?? "en",
+              params.language ?? "auto",
               logger,
               params.prompt,
             );
@@ -198,14 +241,16 @@ export class OpenAISTT implements SpeechToTextProvider {
 
       logger.debug({ tempFilePath, bytes: audioBuffer.length }, "Transcribing audio file");
 
-      const modelToUse = this.config.model ?? "whisper-1";
+      const modelToUse = this.config.model ?? DEFAULT_OPENAI_STT_MODEL;
       const supportsLogprobs =
         modelToUse === "gpt-4o-transcribe" || modelToUse === "gpt-4o-mini-transcribe";
       const includeLogprobs: ["logprobs"] = ["logprobs"];
 
-      const response = await this.openaiClient.audio.transcriptions.create({
+      const languageHint = buildLanguageHint(language, modelToUse);
+
+      const response = await this.transcriptions.create({
         file: await import("fs").then((fs) => fs.createReadStream(tempFilePath!)),
-        language,
+        ...languageHint,
         model: modelToUse,
         ...(prompt ? { prompt } : {}),
         ...(supportsLogprobs ? { include: includeLogprobs } : {}),

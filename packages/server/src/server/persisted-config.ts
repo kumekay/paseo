@@ -14,6 +14,16 @@ import { PluginIdSchema, PluginSourceSchema } from "@getpaseo/protocol/plugin-co
 import { TerminalProfileSchema } from "@getpaseo/protocol/terminal-profile";
 import { PaseoServicePortAllocationSchema } from "@getpaseo/protocol/paseo-config-schema";
 
+const SpeechLanguageCodeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .regex(/^[^,]+$/);
+const SpeechLanguageSchema = z.union([
+  SpeechLanguageCodeSchema,
+  z.array(SpeechLanguageCodeSchema.refine((code) => code.toLowerCase() !== "auto")).min(1),
+]);
+
 export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
 export const LogFormatSchema = z.enum(["pretty", "json"]);
 
@@ -107,7 +117,7 @@ const FeatureDictationSchema = z
       .object({
         provider: SpeechProviderIdSchema.optional(),
         model: z.string().min(1).optional(),
-        language: z.string().trim().min(1).optional(),
+        language: SpeechLanguageSchema.optional(),
         confidenceThreshold: z.number().optional(),
       })
       .strict()
@@ -129,7 +139,7 @@ const FeatureVoiceModeSchema = z
       .object({
         provider: SpeechProviderIdSchema.optional(),
         model: z.string().min(1).optional(),
-        language: z.string().trim().min(1).optional(),
+        language: SpeechLanguageSchema.optional(),
       })
       .strict()
       .optional(),

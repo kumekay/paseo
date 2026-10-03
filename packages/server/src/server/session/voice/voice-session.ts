@@ -217,7 +217,7 @@ export class VoiceSession {
     this.onIdle = options.onIdle;
     this.sessionLogger = logger;
     this.sessionId = sessionId;
-    this.sttLanguage = sttLanguage ?? "en";
+    this.sttLanguage = sttLanguage ?? "auto";
     this.abortController = new AbortController();
 
     this.resolveVoiceTurnDetection = toResolver(voice?.turnDetection ?? null);

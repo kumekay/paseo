@@ -152,7 +152,7 @@ export class DictationStreamManager {
     this.emit = params.emit;
     this.sessionId = params.sessionId;
     this.resolveStt = toResolver(params.stt);
-    this.language = params.language ?? "en";
+    this.language = params.language ?? "auto";
     this.finalTimeoutMs = params.finalTimeoutMs ?? DEFAULT_DICTATION_FINAL_TIMEOUT_MS;
     this.autoCommitSeconds =
       params.autoCommitSeconds ??
