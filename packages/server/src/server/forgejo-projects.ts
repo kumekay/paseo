@@ -18,6 +18,7 @@ const CLONE_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
 
 const TeaRepositorySchema = z.object({
   name: z.string().min(1),
+  owner: z.string().min(1),
   description: z.string(),
   ssh: z.string(),
   url: z.string(),
@@ -122,13 +123,18 @@ export function createForgejoProjects(
       "--limit",
       SEARCH_LIMIT,
       "--fields",
-      "name,description,ssh,url,updated",
+      "name,owner,description,ssh,url,updated",
       "--output",
       "json",
       "--",
       query,
     ]);
-    const repositories = z.array(TeaRepositorySchema).parse(JSON.parse(stdout));
+    // `--owner` also returns the repositories that the owner collaborates on.
+    const owner = config.owner.toLowerCase();
+    const repositories = z
+      .array(TeaRepositorySchema)
+      .parse(JSON.parse(stdout))
+      .filter((repository) => repository.owner.toLowerCase() === owner);
     return repositories.sort((a, b) => b.updated.localeCompare(a.updated));
   }
 
@@ -160,7 +166,7 @@ export function createForgejoProjects(
       const repositories = await searchTea(await resolveLogin(), query);
       return repositories.map((repository) => ({
         name: repository.name,
-        nameWithOwner: `${config.owner}/${repository.name}`,
+        nameWithOwner: `${repository.owner}/${repository.name}`,
         description: repository.description || null,
         updatedAt: repository.updated,
       }));

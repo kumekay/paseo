@@ -23,6 +23,8 @@ const LOGINS = JSON.stringify([
 interface FakeRepository {
   name: string;
   updated: string;
+  /** Another owner. The search for an owner also returns the repositories that it collaborates on. */
+  owner?: string;
 }
 
 function createFakeTea(existing: FakeRepository[]) {
@@ -35,16 +37,22 @@ function createFakeTea(existing: FakeRepository[]) {
       return { stdout: "created", stderr: "" };
     }
     const query = args[args.length - 1]!;
-    const owner = args[args.indexOf("--owner") + 1];
+    const searchedOwner = args[args.indexOf("--owner") + 1]!;
+    const fields = args[args.indexOf("--fields") + 1]!.split(",");
     const matches = existing
       .filter((repository) => repository.name.includes(query))
-      .map((repository) => ({
-        name: repository.name,
-        description: "",
-        ssh: `ssh://git@forgejo.example.com:2222/${owner}/${repository.name}.git`,
-        url: `https://forgejo.example.com/${owner}/${repository.name}`,
-        updated: repository.updated,
-      }));
+      .map((repository) => {
+        const owner = repository.owner ?? searchedOwner;
+        const row: Record<string, string> = {
+          name: repository.name,
+          owner,
+          description: "",
+          ssh: `ssh://git@forgejo.example.com:2222/${owner}/${repository.name}.git`,
+          url: `https://forgejo.example.com/${owner}/${repository.name}`,
+          updated: repository.updated,
+        };
+        return Object.fromEntries(fields.map((field) => [field, row[field]]));
+      });
     return { stdout: JSON.stringify(matches), stderr: "" };
   };
   return { runTea, calls };
@@ -101,6 +109,20 @@ describe("Forgejo projects", () => {
     expect(search.slice(-2)).toEqual(["--", ""]);
   });
 
+  it("lists only the repositories that the owner owns", async () => {
+    const { repositories } = create({
+      owner: "Team",
+      existing: [
+        { name: "app", owner: "team", updated: "2026-10-01T00:00:00Z" },
+        { name: "shared", owner: "other-org", updated: "2026-10-02T00:00:00Z" },
+      ],
+    });
+
+    const found = await repositories.search("");
+
+    expect(found.map((repository) => repository.nameWithOwner)).toEqual(["team/app"]);
+  });
+
   it("clones an existing repository with the configured command and its SSH URL", async () => {
     const { repositories, calls } = create({
       owner: "team",
@@ -152,6 +174,20 @@ describe("Forgejo projects", () => {
     ]);
   });
 
+  it("creates the owner's repository when only another owner has that name", async () => {
+    const { repositories, calls } = create({
+      owner: "alice",
+      existing: [{ name: "app", owner: "other-org", updated: "2026-10-01T00:00:00Z" }],
+    });
+
+    await repositories.checkout({ name: "app", create: true });
+
+    expect(calls.some((args) => args[1] === "create")).toBe(true);
+    expect(cloned).toEqual([
+      ["clone", "--quiet", "ssh://git@forgejo.example.com:2222/alice/app.git"],
+    ]);
+  });
+
   it("refuses a missing repository when creation was not requested", async () => {
     const { repositories, calls } = create({ owner: "team", existing: [] });
 
@@ -166,6 +202,18 @@ describe("Forgejo projects", () => {
       owner: "team",
       existing: [{ name: "app", updated: "2026-10-01T00:00:00Z" }],
       cloneOutput: "done\n",
+    });
+
+    await expect(repositories.checkout({ name: "app", create: false })).rejects.toBeInstanceOf(
+      CloneCommandOutputError,
+    );
+  });
+
+  it("refuses clone output that ends with an absolute path that does not exist", async () => {
+    const { repositories } = create({
+      owner: "team",
+      existing: [{ name: "app", updated: "2026-10-01T00:00:00Z" }],
+      cloneOutput: `${join(checkoutRoot, "missing")}\n`,
     });
 
     await expect(repositories.checkout({ name: "app", create: false })).rejects.toBeInstanceOf(

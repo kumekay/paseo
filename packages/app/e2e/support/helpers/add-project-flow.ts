@@ -6,14 +6,21 @@ export type AddProjectFlowPage =
   | "directory-search"
   | "github-search"
   | "github-location"
+  | "forgejo-search"
   | "new-directory-parent"
   | "new-directory-name";
 
-export type AddProjectMethod = "directory-search" | "browse" | "github" | "new-directory";
+export type AddProjectMethod =
+  | "directory-search"
+  | "browse"
+  | "github"
+  | "forgejo"
+  | "new-directory";
 
 const METHOD_DESTINATIONS: Record<Exclude<AddProjectMethod, "browse">, AddProjectFlowPage> = {
   "directory-search": "directory-search",
   github: "github-search",
+  forgejo: "forgejo-search",
   "new-directory": "new-directory-parent",
 };
 

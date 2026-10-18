@@ -153,7 +153,7 @@ Add project can list, create, and clone repositories from a Forgejo or Gitea ser
 
 - `host` is the server. The daemon host must have the [`tea`](https://gitea.com/gitea/tea) CLI with a login for this host (`tea login add`).
 - `owner` is the user or organization. Paseo lists its repositories and creates new ones there. New repositories are private and empty.
-- `cloneCommand` is the command that clones a repository. Paseo adds the clone URL as the last argument. The command must print the checkout directory on the last line of its output. If the checkout exists already, the command must print that directory again. [cloner](https://github.com/kumekay/cloner) works this way.
+- `cloneCommand` is the command that clones a repository. Paseo adds the clone URL as the last argument. The command must print the absolute path of the checkout directory to stdout, on the last line that is not empty. That directory must exist. If the checkout exists already, the command must print that directory again. [cloner](https://github.com/kumekay/cloner) works this way.
 
 Restart the daemon after you change this setting.
 
