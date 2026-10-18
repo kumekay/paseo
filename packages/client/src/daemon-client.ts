@@ -199,8 +199,9 @@ const perfNow: () => number =
     : () => Date.now();
 
 const PROJECT_GITHUB_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
-// Longer than the daemon's own clone-command timeout, which runs after the tea calls.
-const PROJECT_FORGEJO_CLONE_TIMEOUT_MS = 6 * 60 * 1000;
+// Longer than the daemon's worst case: four tea calls of up to 30 s each, then the
+// 5-minute clone command.
+const PROJECT_FORGEJO_CLONE_TIMEOUT_MS = 8 * 60 * 1000;
 
 interface ImportAgentInputBase {
   cwd?: string;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { test, expect } from "../support/fixtures";
@@ -34,6 +34,8 @@ import { getServerId } from "../support/helpers/server-id";
 
 const SECONDARY_HOST_ID = "add-project-flow-secondary";
 const SECONDARY_HOST_LABEL = "Secondary Host";
+const FORGEJO_HOST_ID = "add-project-flow-forgejo";
+const FORGEJO_HOST_LABEL = "Forgejo Host";
 
 async function expectProjectDirectory(pathname: string): Promise<void> {
   await expect.poll(async () => (await stat(pathname)).isDirectory()).toBe(true);
@@ -79,6 +81,7 @@ test.describe("Add Project command-center flow", () => {
     await expect(addProjectFlowMethod(page, "directory-search")).toBeVisible();
     await expect(addProjectFlowMethod(page, "github")).toContainText("Clone from GitHub");
     await expect(addProjectFlowMethod(page, "new-directory")).toContainText("New directory");
+    await expect(addProjectFlowMethod(page, "forgejo")).toHaveCount(0);
     await expect(addProjectFlowInput(page)).toHaveCount(0);
     await expect(addProjectFlow(page).getByRole("textbox")).toHaveCount(0);
     await expect(page.getByTestId("add-project-flow-page-host")).toHaveCount(0);
@@ -269,6 +272,60 @@ test.describe("Add Project command-center flow", () => {
     } finally {
       await Promise.all(hosts.map((host) => host.close()));
     }
+  });
+
+  test.describe("with a host that has Forgejo projects configured", () => {
+    let forgejoHost: IsolatedHostDaemon;
+
+    test.beforeAll(async () => {
+      const paseoHome = await mkdtemp(path.join(tmpdir(), "paseo-e2e-forgejo-host-"));
+      await writeFile(
+        path.join(paseoHome, "config.json"),
+        `${JSON.stringify({
+          version: 1,
+          features: {
+            forgejoProjects: { host: "forgejo.invalid", owner: "team", cloneCommand: ["clone"] },
+          },
+        })}\n`,
+      );
+      forgejoHost = await startIsolatedHostDaemon(FORGEJO_HOST_ID, { paseoHome });
+    });
+
+    test.afterAll(async () => {
+      await forgejoHost?.close();
+    });
+
+    test("a failed Forgejo search stays visible and Back returns to the methods", async ({
+      page,
+    }) => {
+      await gotoAppShell(page);
+      await addConnectedHostAndReload(page, {
+        serverId: forgejoHost.serverId,
+        label: FORGEJO_HOST_LABEL,
+        port: forgejoHost.port,
+      });
+      await waitForConnectedHost(page, {
+        serverId: FORGEJO_HOST_ID,
+        endpoint: `localhost:${forgejoHost.port}`,
+      });
+      await openAddProjectHostSelection(page);
+      await addProjectFlowHost(page, FORGEJO_HOST_ID).click();
+      await expectAddProjectPage(page, "method");
+
+      await expect(addProjectFlowMethod(page, "forgejo")).toContainText("Clone from Forgejo");
+      await chooseAddProjectMethod(page, "forgejo");
+
+      // No machine has a tea login for forgejo.invalid. Without tea, the error names tea too.
+      await expect(page.getByTestId("add-project-flow-query-error")).toContainText("tea", {
+        timeout: 30_000,
+      });
+      await expect(page.locator('[data-testid^="add-project-flow-forgejo-"]')).toHaveCount(0);
+      await expect(addProjectFlowInput(page)).toBeEditable();
+
+      await addProjectFlowBack(page).click();
+      await expectAddProjectPage(page, "method");
+      await expect(addProjectFlowMethod(page, "forgejo")).toBeVisible();
+    });
   });
 
   test("keyboard directory search adds the selected Project", async ({
