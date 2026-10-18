@@ -135,6 +135,28 @@ Or persist it in `config.json`:
 
 When enabled, open the daemon HTTP origin, for example `http://localhost:6767/`, to load the web app. Static UI files load without daemon auth; API and WebSocket requests still require the configured password.
 
+## Clone from Forgejo
+
+Add project can list, create, and clone repositories from a Forgejo or Gitea server. The option shows only when `features.forgejoProjects` is set:
+
+```json
+{
+  "features": {
+    "forgejoProjects": {
+      "host": "forgejo.example.com",
+      "owner": "team",
+      "cloneCommand": ["clone"]
+    }
+  }
+}
+```
+
+- `host` is the server. The daemon host must have the [`tea`](https://gitea.com/gitea/tea) CLI with a login for this host (`tea login add`).
+- `owner` is the user or organization. Paseo lists its repositories and creates new ones there. New repositories are private and empty.
+- `cloneCommand` is the command that clones a repository. Paseo adds the clone URL as the last argument. The command must print the checkout directory on the last line of its output. If the checkout exists already, the command must print that directory again. [cloner](https://github.com/kumekay/cloner) works this way.
+
+Restart the daemon after you change this setting.
+
 ## Logging
 
 Daemon logging uses separate console and file sinks by default:

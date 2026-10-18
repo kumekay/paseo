@@ -33,6 +33,7 @@ import {
   type EditingTextInputHandle,
 } from "@/components/ui/text-input";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { ForgejoIcon } from "@/components/icons/forgejo-icon";
 import { GitHubIcon } from "@/components/icons/github-icon";
 import {
   applyAvailableAddProjectHosts,
@@ -42,6 +43,7 @@ import {
   moveAddProjectSelection,
   openAddProjectFlow,
   openDirectorySearchPage,
+  openForgejoSearchPage,
   openGithubLocationPage,
   openGithubSearchPage,
   openNewDirectoryNamePage,
@@ -59,12 +61,14 @@ import {
   buildAddProjectMethods,
   addProjectMethodEmptyText,
   buildCloneLocationOptions,
+  buildForgejoRepositoryChoices,
   buildManualGithubRepositoryChoices,
   buildSuggestedParentDirectories,
   filterAddProjectHosts,
   joinDirectoryPath,
   pathBaseName,
   type AddProjectMethodId,
+  type ForgejoRepositoryChoice,
 } from "@/add-project-flow/options";
 import {
   buildProjectPickerOptions,
@@ -163,6 +167,7 @@ function FlowBackButton({ onPress }: { onPress: () => void }) {
 
 function methodIcon(method: AddProjectMethodId): FlowRowOption["icon"] {
   if (method === "github") return GitHubIcon;
+  if (method === "forgejo") return ForgejoIcon;
   if (method === "browse") return FolderOpen;
   if (method === "new-directory") return FolderPlus;
   return Search;
@@ -175,7 +180,9 @@ function directoryOptionSubtitle(option: ProjectPickerOption, shortPath: string)
 }
 
 function progressText(page: AddProjectPage): string {
-  if (page.kind === "github-location") return "Cloning project...";
+  if (page.kind === "github-location" || page.kind === "forgejo-search") {
+    return "Cloning project...";
+  }
   if (page.kind === "new-directory-name") return "Creating directory...";
   return "Adding project...";
 }
@@ -183,6 +190,7 @@ function progressText(page: AddProjectPage): string {
 function emptyText(page: AddProjectPage, host: AddProjectHost | null): string {
   if (page.kind === "host") return "No connected hosts";
   if (page.kind === "github-search") return "Enter a GitHub URL or owner/repo";
+  if (page.kind === "forgejo-search") return "No matching repositories";
   if (page.kind === "method") return addProjectMethodEmptyText(host);
   return "No matching options";
 }
@@ -193,10 +201,14 @@ interface QueryErrorInput {
   githubFailed: boolean;
   githubAvailable: boolean | null;
   githubError: string | null;
+  forgejoFailed: boolean;
+  forgejoError: string | null;
 }
 
 function queryErrorText(input: QueryErrorInput): string | null {
   if (input.searchesDirectories && input.directoryFailed) return "Unable to search directories";
+  if (input.forgejoFailed) return "Unable to search Forgejo repositories";
+  if (input.forgejoError) return input.forgejoError;
   if (input.githubFailed) return "Unable to search GitHub repositories";
   if (input.githubError) return input.githubError;
   if (input.githubAvailable === false) return input.githubError ?? "GitHub search is unavailable";
@@ -219,6 +231,8 @@ function pageTitle(page: AddProjectPage): string {
       return "Clone from GitHub";
     case "github-location":
       return "Choose destination";
+    case "forgejo-search":
+      return "Clone from Forgejo";
     case "new-directory-parent":
       return "Choose parent directory";
     case "new-directory-name":
@@ -236,6 +250,8 @@ function pagePlaceholder(page: AddProjectInputPage): string {
       return "Search directories or enter a path...";
     case "github-search":
       return "Search or enter a GitHub repository...";
+    case "forgejo-search":
+      return "Search repositories or enter a new name...";
     case "github-location":
     case "new-directory-parent":
       return "Search parent directories or enter a path...";
@@ -328,6 +344,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
   const githubSearchByHost = useHostFeatureMap(hostIds, "workspaceGithubRepositorySearch");
   // COMPAT(projectCreateDirectory): added in v0.1.108, remove gate after 2027-01-15.
   const createDirectoryByHost = useHostFeatureMap(hostIds, "projectCreateDirectory");
+  const forgejoCloneByHost = useHostFeatureMap(hostIds, "projectForgejoClone");
   const localServerId = useLocalDaemonServerId();
   const availableHosts = useMemo<AddProjectHost[]>(
     () =>
@@ -344,6 +361,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
             canBrowse: canAddProject && getIsElectronRuntime() && localServerId === host.serverId,
             canCloneGithubRepositories: githubCloneByHost.get(host.serverId) === true,
             canSearchGithubRepositories: githubSearchByHost.get(host.serverId) === true,
+            canCloneForgejoRepositories: forgejoCloneByHost.get(host.serverId) === true,
             canCreateDirectory: createDirectoryByHost.get(host.serverId) === true,
           },
         ];
@@ -351,6 +369,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     [
       connectionStatuses,
       createDirectoryByHost,
+      forgejoCloneByHost,
       githubCloneByHost,
       githubSearchByHost,
       hosts,
@@ -446,6 +465,18 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     retry: false,
     staleTimeMs: 15_000,
   });
+  const forgejoQuery = useFetchQuery({
+    queryKey: ["add-project-flow-forgejo", hostId, debouncedQuery],
+    queryFn: async () => {
+      if (!client) throw new Error("Host is unavailable");
+      const payload = await client.searchForgejoRepositories({ query: debouncedQuery });
+      return { query: debouncedQuery, payload };
+    },
+    enabled: Boolean(client && page.kind === "forgejo-search"),
+    dataShape: "value",
+    retry: false,
+    staleTimeMs: 15_000,
+  });
 
   const handleBack = useCallback(() => {
     setState((current) => {
@@ -528,6 +559,8 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         void browse();
       } else if (method === "github") {
         setState((current) => openGithubSearchPage(current, hostId));
+      } else if (method === "forgejo") {
+        setState((current) => openForgejoSearchPage(current, hostId));
       } else {
         setState((current) => openNewDirectoryParentPage(current, hostId));
       }
@@ -584,6 +617,44 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
       }
     },
     [cloneGithubProject, openNewWorkspaceForProject],
+  );
+  const cloneForgejoRepository = useCallback(
+    async (choice: ForgejoRepositoryChoice) => {
+      if (!client || !hostId || submissionInFlightRef.current) return;
+      submissionInFlightRef.current = true;
+      setState((current) =>
+        setPageStatus(current, "forgejo-search", { isSubmitting: true, error: null }),
+      );
+      try {
+        const payload = await client.cloneForgejoProject({
+          name: choice.name,
+          create: choice.create,
+        });
+        if (payload.status === "error") {
+          setState((current) =>
+            setPageStatus(current, "forgejo-search", { isSubmitting: false, error: payload.error }),
+          );
+          return;
+        }
+        registerProjectDescriptor({
+          serverId: hostId,
+          project: payload.project,
+          upsertProject,
+          setHasHydratedWorkspaces,
+        });
+        openNewWorkspaceForProject(hostId, payload.project);
+      } catch (error) {
+        setState((current) =>
+          setPageStatus(current, "forgejo-search", {
+            isSubmitting: false,
+            error: error instanceof Error ? error.message : "Unable to clone repository",
+          }),
+        );
+      } finally {
+        submissionInFlightRef.current = false;
+      }
+    },
+    [client, hostId, openNewWorkspaceForProject, setHasHydratedWorkspaces, upsertProject],
   );
   const rows = useMemo<FlowRowOption[]>(() => {
     if (page.kind === "host") {
@@ -688,6 +759,18 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         select: () => void cloneRepository(page, option.path),
       }));
     }
+    if (page.kind === "forgejo-search") {
+      const search = forgejoQuery.data?.query === page.query ? forgejoQuery.data.payload : null;
+      if (search?.status !== "success") return [];
+      return buildForgejoRepositoryChoices(page.query, search).map((choice) => ({
+        id: choice.id,
+        title: choice.title,
+        subtitle: choice.description,
+        icon: choice.create ? Plus : ForgejoIcon,
+        testID: `add-project-flow-forgejo-${choice.id}`,
+        select: () => void cloneForgejoRepository(choice),
+      }));
+    }
     if (page.kind === "new-directory-parent") {
       return pathOptions.map((option) => ({
         id: option.path,
@@ -701,8 +784,10 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     }
     return [];
   }, [
+    cloneForgejoRepository,
     cloneRepository,
     directoryPaths,
+    forgejoQuery.data,
     githubQuery.data,
     host,
     onClose,
@@ -829,17 +914,24 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     page.kind === "github-search" && githubQuery.data?.query === page.query
       ? githubQuery.data.payload
       : null;
+  const currentForgejoSearch =
+    page.kind === "forgejo-search" && forgejoQuery.data?.query === page.query
+      ? forgejoQuery.data.payload
+      : null;
   const loading =
     (searchesDirectories && (query !== debouncedQuery || directoryQuery.isFetching)) ||
     (page.kind === "github-search" &&
       host?.canSearchGithubRepositories === true &&
-      (query !== debouncedQuery || githubQuery.isFetching));
+      (query !== debouncedQuery || githubQuery.isFetching)) ||
+    (page.kind === "forgejo-search" && (query !== debouncedQuery || forgejoQuery.isFetching));
   const queryError = queryErrorText({
     searchesDirectories,
     directoryFailed: directoryQuery.isError,
     githubFailed: page.kind === "github-search" && githubQuery.isError,
     githubAvailable: currentGithubSearch?.available ?? null,
     githubError: currentGithubSearch?.error ?? null,
+    forgejoFailed: page.kind === "forgejo-search" && forgejoQuery.isError,
+    forgejoError: currentForgejoSearch?.status === "error" ? currentForgejoSearch.error : null,
   });
   const preview =
     page.kind === "new-directory-name" && page.name.trim()

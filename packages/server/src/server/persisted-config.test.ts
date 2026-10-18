@@ -116,6 +116,36 @@ describe("PersistedConfigSchema daemon web UI feature config", () => {
   });
 });
 
+describe("PersistedConfigSchema Forgejo projects feature config", () => {
+  test("accepts a host, an owner, and a clone command", () => {
+    const parsed = PersistedConfigSchema.parse({
+      features: {
+        forgejoProjects: {
+          host: "forgejo.example.com",
+          owner: "team",
+          cloneCommand: ["clone"],
+        },
+      },
+    });
+
+    expect(parsed.features?.forgejoProjects).toEqual({
+      host: "forgejo.example.com",
+      owner: "team",
+      cloneCommand: ["clone"],
+    });
+  });
+
+  test("rejects an empty clone command", () => {
+    const parsed = PersistedConfigSchema.safeParse({
+      features: {
+        forgejoProjects: { host: "forgejo.example.com", owner: "team", cloneCommand: [] },
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+});
+
 describe("PersistedConfigSchema worktrees config", () => {
   test("accepts optional worktree root", () => {
     const parsed = PersistedConfigSchema.parse({

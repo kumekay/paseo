@@ -3,10 +3,30 @@ import {
   parseGitHubRemoteUrl,
   parseGitRemoteLocation,
 } from "@getpaseo/protocol/git-remote";
+import { ForgejoRepositoryNameSchema, type ForgejoRepository } from "@getpaseo/protocol/messages";
 import { shortenPath } from "@/utils/shorten-path";
 import type { AddProjectHost, GithubRepositoryChoice } from "./model";
 
-export type AddProjectMethodId = "directory-search" | "browse" | "github" | "new-directory";
+export type AddProjectMethodId =
+  | "directory-search"
+  | "browse"
+  | "github"
+  | "forgejo"
+  | "new-directory";
+
+export interface ForgejoRepositoryChoice {
+  id: string;
+  name: string;
+  create: boolean;
+  title: string;
+  description: string | null;
+}
+
+export interface ForgejoRepositorySearch {
+  host: string;
+  owner: string;
+  repositories: ForgejoRepository[];
+}
 
 export interface AddProjectMethodOption {
   id: AddProjectMethodId;
@@ -54,6 +74,13 @@ export function buildAddProjectMethods(host: AddProjectHost): AddProjectMethodOp
     description: githubMethodDescription(host),
     disabled: !host.canCloneGithubRepositories,
   });
+  if (host.canCloneForgejoRepositories) {
+    options.push({
+      id: "forgejo",
+      label: "Clone from Forgejo",
+      description: "Find or create a repository on your Forgejo server",
+    });
+  }
   options.push({
     id: "new-directory",
     label: "New directory",
@@ -63,6 +90,34 @@ export function buildAddProjectMethods(host: AddProjectHost): AddProjectMethodOp
     disabled: !host.canCreateDirectory,
   });
   return options;
+}
+
+/** Search results, led by a "Create" choice when the query names a repository that does not exist. */
+export function buildForgejoRepositoryChoices(
+  query: string,
+  search: ForgejoRepositorySearch,
+): ForgejoRepositoryChoice[] {
+  const name = query.trim();
+  const hasExactMatch = search.repositories.some(
+    (repository) => repository.name.toLowerCase() === name.toLowerCase(),
+  );
+  const canCreate = !hasExactMatch && ForgejoRepositoryNameSchema.safeParse(name).success;
+  const existing = search.repositories.map((repository) => ({
+    id: repository.nameWithOwner,
+    name: repository.name,
+    create: false,
+    title: repository.nameWithOwner,
+    description: repository.description,
+  }));
+  if (!canCreate) return existing;
+  const createChoice = {
+    id: `create:${name}`,
+    name,
+    create: true,
+    title: `Create ${search.owner}/${name}`,
+    description: `New private repository on ${search.host}`,
+  };
+  return [createChoice, ...existing];
 }
 
 export function addProjectMethodEmptyText(host: AddProjectHost | null): string {
