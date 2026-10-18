@@ -186,7 +186,11 @@ import type {
   AgentProviderRuntimeSettingsMap,
   ProviderOverride,
 } from "./agent/provider-launch-config.js";
-import { loadPersistedConfig, type PersistedConfig } from "./persisted-config.js";
+import {
+  loadPersistedConfig,
+  type ForgejoProjectsConfig,
+  type PersistedConfig,
+} from "./persisted-config.js";
 import { createServiceProxySubsystem, type ServiceProxySubsystem } from "./service-proxy.js";
 import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
 import { ScriptHealthMonitor } from "./script-health-monitor.js";
@@ -434,6 +438,7 @@ export interface PaseoDaemonConfig {
     enabled: boolean;
     distDir: string | null;
   };
+  forgejoProjects?: ForgejoProjectsConfig;
   appBaseUrl?: string;
   auth?: DaemonAuthConfig;
   openai?: PaseoOpenAIConfig;
@@ -1719,6 +1724,7 @@ export async function createPaseoDaemon(
               {
                 listen: formatListenTarget(boundListenTarget ?? listenTarget),
                 worktreesRoot: config.worktreesRoot,
+                forgejoProjects: config.forgejoProjects,
                 get appBaseUrl() {
                   return appBaseUrl;
                 },

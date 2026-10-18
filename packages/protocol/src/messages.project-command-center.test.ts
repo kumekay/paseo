@@ -167,6 +167,53 @@ describe("project command-center protocol", () => {
     expect(parsed.features?.workspaceGithubRepositorySearch).toBeUndefined();
     expect(parsed.features?.projectGithubClone).toBeUndefined();
     expect(parsed.features?.projectCreateDirectory).toBeUndefined();
+    expect(parsed.features?.projectForgejoClone).toBeUndefined();
+  });
+
+  it("parses the Forgejo repository search and clone RPCs", () => {
+    expect(
+      SessionOutboundMessageSchema.parse({
+        type: "project.forgejo.search_repositories.response",
+        payload: {
+          status: "success",
+          requestId: "req-forgejo",
+          host: "forgejo.example.com",
+          owner: "team",
+          repositories: [
+            {
+              name: "app",
+              nameWithOwner: "team/app",
+              description: null,
+              updatedAt: "2026-10-01T10:00:00Z",
+            },
+          ],
+        },
+      }).payload,
+    ).toMatchObject({ status: "success", owner: "team", repositories: [{ name: "app" }] });
+
+    expect(
+      SessionInboundMessageSchema.parse({
+        type: "project.forgejo.clone.request",
+        name: "new_app.v2",
+        create: true,
+        requestId: "req-clone",
+      }),
+    ).toMatchObject({ name: "new_app.v2", create: true });
+    expect(
+      SessionInboundMessageSchema.safeParse({
+        type: "project.forgejo.clone.request",
+        name: "--upload-pack=x",
+        create: false,
+        requestId: "req-clone",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      SessionOutboundMessageSchema.parse({
+        type: "project.forgejo.clone.response",
+        payload: { status: "error", requestId: "req-clone", error: "tea has no login" },
+      }).payload,
+    ).toEqual({ status: "error", requestId: "req-clone", error: "tea has no login" });
   });
 
   it("parses the agent thinking update capability", () => {

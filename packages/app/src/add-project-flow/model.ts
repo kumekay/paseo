@@ -5,6 +5,7 @@ export interface AddProjectHost {
   canBrowse: boolean;
   canCloneGithubRepositories: boolean;
   canSearchGithubRepositories: boolean;
+  canCloneForgejoRepositories: boolean;
   canCreateDirectory: boolean;
 }
 
@@ -37,6 +38,7 @@ export type AddProjectPage =
       repository: GithubRepositoryChoice;
       isSubmitting: boolean;
     } & SearchPageState)
+  | ({ kind: "forgejo-search"; hostId: string; isSubmitting: boolean } & SearchPageState)
   | ({ kind: "new-directory-parent"; hostId: string } & SearchPageState)
   | {
       kind: "new-directory-name";
@@ -177,6 +179,17 @@ export function openGithubLocationPage(
     error: null,
     hostId,
     repository,
+    isSubmitting: false,
+  });
+}
+
+export function openForgejoSearchPage(
+  state: AddProjectFlowState,
+  hostId: string,
+): AddProjectFlowState {
+  return pushAddProjectPage(state, {
+    ...searchPage("forgejo-search"),
+    hostId,
     isSubmitting: false,
   });
 }

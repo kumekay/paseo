@@ -84,6 +84,8 @@ import type {
   WorkspaceGithubSearchRepositoriesResponse,
   ProjectGithubCloneProtocol,
   ProjectGithubCloneResponse,
+  ProjectForgejoSearchRepositoriesResponse,
+  ProjectForgejoCloneResponse,
   ArchiveWorkspaceResponseMessage,
   WorkspaceSetupStatusResponseMessage,
   ListCommandsResponse,
@@ -195,6 +197,8 @@ const perfNow: () => number =
     : () => Date.now();
 
 const PROJECT_GITHUB_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
+// Longer than the daemon's own clone-command timeout, which runs after the tea calls.
+const PROJECT_FORGEJO_CLONE_TIMEOUT_MS = 6 * 60 * 1000;
 
 interface ImportAgentInputBase {
   cwd?: string;
@@ -910,6 +914,9 @@ export type ProjectCreateDirectoryPayload = ProjectCreateDirectoryResponse["payl
 export type WorkspaceGithubSearchRepositoriesPayload =
   WorkspaceGithubSearchRepositoriesResponse["payload"];
 type ProjectGithubClonePayload = ProjectGithubCloneResponse["payload"];
+export type ProjectForgejoSearchRepositoriesPayload =
+  ProjectForgejoSearchRepositoriesResponse["payload"];
+export type ProjectForgejoClonePayload = ProjectForgejoCloneResponse["payload"];
 type ArchiveWorkspacePayload = ArchiveWorkspaceResponseMessage["payload"];
 type WorkspaceSetupStatusPayload = WorkspaceSetupStatusResponseMessage["payload"];
 
@@ -2668,6 +2675,29 @@ export class DaemonClient {
       requestId,
       message,
       timeout: PROJECT_GITHUB_CLONE_TIMEOUT_MS,
+    });
+  }
+
+  async searchForgejoRepositories(
+    input: { query: string },
+    requestId?: string,
+  ): Promise<ProjectForgejoSearchRepositoriesPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"project.forgejo.search_repositories.response">(
+      {
+        requestId,
+        message: { type: "project.forgejo.search_repositories.request", query: input.query },
+      },
+    );
+  }
+
+  async cloneForgejoProject(
+    input: { name: string; create: boolean },
+    requestId?: string,
+  ): Promise<ProjectForgejoClonePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"project.forgejo.clone.response">({
+      requestId,
+      message: { type: "project.forgejo.clone.request", name: input.name, create: input.create },
+      timeout: PROJECT_FORGEJO_CLONE_TIMEOUT_MS,
     });
   }
 
