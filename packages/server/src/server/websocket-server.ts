@@ -77,6 +77,7 @@ import {
   findLatestPermissionRequest,
 } from "@getpaseo/protocol/agent-attention-notification";
 import { createGitHubService } from "../services/github-service.js";
+import { createForgejoProjects, type ForgejoProjects } from "./forgejo-projects.js";
 import type { ForgeService } from "../services/forge-service.js";
 import {
   extractHttpBearerToken,
@@ -500,6 +501,13 @@ export class MissingDaemonVersionError extends Error {
   }
 }
 
+function createConfiguredForgejoProjects(
+  runtimeConfig: DaemonRuntimeConfig | undefined,
+): ForgejoProjects | null {
+  const config = runtimeConfig?.forgejoProjects;
+  return config ? createForgejoProjects(config) : null;
+}
+
 interface RequiredWebSocketServices {
   scheduleService: ScheduleService;
   checkoutDiffManager: CheckoutDiffManager;
@@ -544,6 +552,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly scheduleService: ScheduleService;
   private readonly checkoutDiffManager: CheckoutDiffManager;
   private readonly github: ForgeService;
+  private readonly forgejoProjects: ForgejoProjects | null;
   private readonly workspaceGitService: WorkspaceGitService;
   private readonly workspaceAutoName: WorkspaceAutoName;
   private readonly downloadTokenStore: DownloadTokenStore;
@@ -695,6 +704,7 @@ export class VoiceAssistantWebSocketServer {
     this.scheduleService = requiredServices.scheduleService;
     this.checkoutDiffManager = requiredServices.checkoutDiffManager;
     this.github = github ?? createGitHubService();
+    this.forgejoProjects = createConfiguredForgejoProjects(daemonRuntimeConfig);
     this.workspaceGitService = workspaceGitService ?? createFallbackWorkspaceGitService();
     this.workspaceAutoName = workspaceAutoName;
     this.downloadTokenStore = downloadTokenStore;
@@ -1488,6 +1498,7 @@ export class VoiceAssistantWebSocketServer {
       scheduleService: this.scheduleService,
       checkoutDiffManager: this.checkoutDiffManager,
       github: this.github,
+      ...(this.forgejoProjects ? { forgejoProjects: this.forgejoProjects } : {}),
       workspaceGitService: this.workspaceGitService,
       workspaceAutoName: this.workspaceAutoName,
       daemonConfigStore: this.daemonConfigStore,
@@ -1905,6 +1916,7 @@ export class VoiceAssistantWebSocketServer {
         workspaceGithubRepositorySearch: true,
         // COMPAT(projectCreateDirectory): added in v0.1.108, remove gate after 2027-01-15.
         projectCreateDirectory: true,
+        ...(this.forgejoProjects ? { projectForgejoClone: true } : {}),
         // COMPAT(commitsList): added in v0.1.110, remove gate after 2027-01-16.
         commitsList: true,
         // COMPAT(commitBaseClassification): added in v0.2.0, remove gate after 2027-01-23.

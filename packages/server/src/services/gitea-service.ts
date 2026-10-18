@@ -176,6 +176,7 @@ const GiteaLoginSchema = z
     name: z.string().optional(),
     url: z.string().optional(),
     ssh_host: z.string().optional(),
+    user: z.string().optional(),
   })
   .passthrough();
 
@@ -420,7 +421,7 @@ const teaCliRunner = createForgeCliRunner({
   },
 });
 
-async function runTeaCommand(
+export async function runTeaCommand(
   args: string[],
   options: TeaCommandRunnerOptions,
 ): Promise<TeaCommandResult> {
@@ -1195,7 +1196,12 @@ export async function probeGiteaHost(host: string): Promise<boolean> {
   }
 }
 
-function findTeaLoginNameForHost(stdout: string, host: string): string | null {
+export interface TeaLogin {
+  name: string;
+  user: string | null;
+}
+
+export function findTeaLoginForHost(stdout: string, host: string): TeaLogin | null {
   let data: unknown;
   try {
     data = JSON.parse(stdout);
@@ -1218,11 +1224,12 @@ function findTeaLoginNameForHost(stdout: string, host: string): string | null {
     }
     return candidates.some((candidate) => candidate?.toLowerCase() === target);
   });
-  return match?.name ?? null;
+  if (!match?.name) return null;
+  return { name: match.name, user: match.user ?? null };
 }
 
 function hostHasLogin(stdout: string, host: string): boolean {
-  return findTeaLoginNameForHost(stdout, host) !== null;
+  return findTeaLoginForHost(stdout, host) !== null;
 }
 
 export type GiteaFamilySoftware = "gitea" | "forgejo";
@@ -1274,7 +1281,7 @@ async function probeForgejoNamespaceByTea(
   let loginName: string | null;
   try {
     const { stdout } = await runTea(["login", "list", "-o", "json"]);
-    loginName = findTeaLoginNameForHost(stdout, host);
+    loginName = findTeaLoginForHost(stdout, host)?.name ?? null;
   } catch {
     return null;
   }

@@ -641,6 +641,7 @@ export function resolveConfigFromPersisted(
     relayPublicUseTls: relay.publicUseTls,
     serviceProxy,
     webUi,
+    forgejoProjects: persisted.features?.forgejoProjects,
     appBaseUrl,
     auth: resolveAuthConfig(env, persisted),
     openai,
