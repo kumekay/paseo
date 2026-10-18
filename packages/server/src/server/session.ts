@@ -233,6 +233,7 @@ import {
   type GitHubService,
 } from "../services/github-service.js";
 import type { ForgeService } from "../services/forge-service.js";
+import { describeForgejoProjectsError, type ForgejoProjects } from "./forgejo-projects.js";
 import {
   resolveWorkspaceRootAgent,
   summarizeFetchWorkspacesEntries,
@@ -471,6 +472,8 @@ export interface SessionOptions {
   scheduleService: ScheduleService;
   checkoutDiffManager: CheckoutDiffManager;
   github?: ForgeService;
+  // Present only when the daemon config sets features.forgejoProjects.
+  forgejoProjects?: ForgejoProjects;
   createAgentMcpTransport?: AgentMcpTransportFactory;
   // Injected so tests can substitute the git branch rename without module mocks;
   // defaults to the real checkout-git implementation.
@@ -730,6 +733,7 @@ export class Session {
   private readonly directorySync: DirectorySyncService;
   private readonly filesystem: SessionFileSystem;
   private readonly github: ForgeService;
+  private readonly forgejoProjects: ForgejoProjects | undefined;
   private readonly renameCurrentBranch: typeof renameCurrentBranchDefault;
   private readonly workspaceGitService: WorkspaceGitService;
   private readonly workspaceAutoName: WorkspaceAutoName;
@@ -831,6 +835,7 @@ export class Session {
       scheduleService,
       checkoutDiffManager,
       github,
+      forgejoProjects,
       renameCurrentBranch,
       workspaceGitService,
       workspaceAutoName,
@@ -903,6 +908,7 @@ export class Session {
     this.workspaceLabelService = resolveWorkspaceLabelService(workspaceLabelService);
     this.filesystem = filesystem ?? nodeSessionFileSystem;
     this.github = github ?? createGitHubService();
+    this.forgejoProjects = forgejoProjects;
     this.renameCurrentBranch = renameCurrentBranch ?? renameCurrentBranchDefault;
     this.workspaceGitService = workspaceGitService;
     this.gitMutation = createGitMutationService({
@@ -2938,6 +2944,10 @@ export class Session {
         return this.handleWorkspaceGithubSearchRepositoriesRequest(msg);
       case "project.github.clone.request":
         return this.handleProjectGithubCloneRequest(msg);
+      case "project.forgejo.search_repositories.request":
+        return this.handleProjectForgejoSearchRepositoriesRequest(msg);
+      case "project.forgejo.clone.request":
+        return this.handleProjectForgejoCloneRequest(msg);
       case "archive_workspace_request":
         return this.handleArchiveWorkspaceRequest(msg);
       case "project.remove.request":
@@ -7196,6 +7206,74 @@ export class Session {
           project: null,
           error: message,
         },
+      });
+    }
+  }
+
+  private async handleProjectForgejoSearchRepositoriesRequest(
+    request: Extract<
+      SessionInboundMessage,
+      { type: "project.forgejo.search_repositories.request" }
+    >,
+  ): Promise<void> {
+    const { requestId } = request;
+    if (!this.forgejoProjects) {
+      this.emit({
+        type: "project.forgejo.search_repositories.response",
+        payload: { status: "error", requestId, error: "Forgejo projects are not configured" },
+      });
+      return;
+    }
+    try {
+      const { host, owner } = this.forgejoProjects;
+      const repositories = await this.forgejoProjects.search(request.query);
+      this.emit({
+        type: "project.forgejo.search_repositories.response",
+        payload: { status: "success", requestId, host, owner, repositories },
+      });
+    } catch (error) {
+      this.sessionLogger.warn({ err: error }, "Forgejo repository search failed");
+      this.emit({
+        type: "project.forgejo.search_repositories.response",
+        payload: { status: "error", requestId, error: describeForgejoProjectsError(error) },
+      });
+    }
+  }
+
+  private async handleProjectForgejoCloneRequest(
+    request: Extract<SessionInboundMessage, { type: "project.forgejo.clone.request" }>,
+  ): Promise<void> {
+    const { requestId } = request;
+    if (!this.forgejoProjects) {
+      this.emit({
+        type: "project.forgejo.clone.response",
+        payload: { status: "error", requestId, error: "Forgejo projects are not configured" },
+      });
+      return;
+    }
+    try {
+      const checkoutPath = await this.forgejoProjects.checkout({
+        name: request.name,
+        create: request.create,
+      });
+      const project =
+        await this.workspaceProvisioning.findOrCreateProjectForDirectory(checkoutPath);
+      this.emit({
+        type: "project.forgejo.clone.response",
+        payload: {
+          status: "success",
+          requestId,
+          project: await this.buildProjectDescriptor(project),
+        },
+      });
+    } catch (error) {
+      this.sessionLogger.error(
+        { err: error, name: request.name, create: request.create },
+        "Failed to clone Forgejo project",
+      );
+      this.emit({
+        type: "project.forgejo.clone.response",
+        payload: { status: "error", requestId, error: describeForgejoProjectsError(error) },
       });
     }
   }

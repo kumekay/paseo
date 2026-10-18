@@ -3954,6 +3954,44 @@ test("searches GitHub repositories through the dotted RPC", async () => {
   });
 });
 
+test("clones a Forgejo repository through the dotted RPC", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const clonePromise = client.cloneForgejoProject({ name: "app", create: true }, "req-forgejo");
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "project.forgejo.clone.request",
+    name: "app",
+    create: true,
+    requestId: "req-forgejo",
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "project.forgejo.clone.response",
+      payload: { status: "error", requestId: "req-forgejo", error: "clone failed" },
+    }),
+  );
+
+  await expect(clonePromise).resolves.toEqual({
+    status: "error",
+    requestId: "req-forgejo",
+    error: "clone failed",
+  });
+});
+
 test("creates and registers a project directory through the dotted RPC", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

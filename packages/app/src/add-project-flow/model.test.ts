@@ -19,6 +19,7 @@ import {
   addProjectMethodEmptyText,
   buildAddProjectMethods,
   buildCloneLocationOptions,
+  buildForgejoRepositoryChoices,
   buildManualGithubRepositoryChoices,
 } from "./options";
 
@@ -29,6 +30,7 @@ const HOST: AddProjectHost = {
   canBrowse: true,
   canCloneGithubRepositories: true,
   canSearchGithubRepositories: true,
+  canCloneForgejoRepositories: false,
   canCreateDirectory: true,
 };
 
@@ -111,6 +113,43 @@ describe("Add Project navigation", () => {
 });
 
 describe("Add Project options", () => {
+  it("lists Clone from Forgejo only for hosts configured for it", () => {
+    const methodIds = (host: AddProjectHost) => buildAddProjectMethods(host).map(({ id }) => id);
+
+    expect(methodIds(HOST)).not.toContain("forgejo");
+    expect(methodIds({ ...HOST, canCloneForgejoRepositories: true })).toEqual([
+      "directory-search",
+      "browse",
+      "github",
+      "forgejo",
+      "new-directory",
+    ]);
+  });
+
+  it("offers to create a Forgejo repository only for a new, valid name", () => {
+    const search = {
+      host: "forgejo.example.com",
+      owner: "team",
+      repositories: [
+        { name: "app", nameWithOwner: "team/app", description: null, updatedAt: "2026-10-01" },
+      ],
+    };
+    const titles = (query: string) =>
+      buildForgejoRepositoryChoices(query, search).map(({ title }) => title);
+
+    expect(buildForgejoRepositoryChoices(" new-app ", search)[0]).toEqual({
+      id: "create:new-app",
+      name: "new-app",
+      create: true,
+      title: "Create team/new-app",
+      description: "New private repository on forgejo.example.com",
+    });
+    expect(titles("App")).toEqual(["team/app"]);
+    expect(titles("")).toEqual(["team/app"]);
+    expect(titles("two words")).toEqual(["team/app"]);
+    expect(titles("-flag")).toEqual(["team/app"]);
+  });
+
   it("hides every mutating method when the host lacks stable project identity", () => {
     const outdatedHost = { ...HOST, canAddProject: false };
 

@@ -2627,6 +2627,31 @@ export const ProjectGithubCloneRequestSchema = z.object({
   requestId: z.string(),
 });
 
+// Letters, digits, ".", "-" and "_", as Forgejo allows. A leading "-" is refused so the
+// name is never read as a CLI flag.
+export const ForgejoRepositoryNameSchema = z.string().regex(/^[\w.][\w.-]*$/);
+
+export const ForgejoRepositorySchema = z.object({
+  name: z.string().min(1),
+  nameWithOwner: z.string().min(MIN_REPOSITORY_PATH_LENGTH),
+  description: z.string().nullable(),
+  updatedAt: z.string(),
+});
+
+export const ProjectForgejoSearchRepositoriesRequestSchema = z.object({
+  type: z.literal("project.forgejo.search_repositories.request"),
+  query: z.string(),
+  requestId: z.string(),
+});
+
+export const ProjectForgejoCloneRequestSchema = z.object({
+  type: z.literal("project.forgejo.clone.request"),
+  name: ForgejoRepositoryNameSchema,
+  // Create the repository on the Forgejo host first when it does not exist yet.
+  create: z.boolean(),
+  requestId: z.string(),
+});
+
 export const ArchiveWorkspaceRequestSchema = z.object({
   type: z.literal("archive_workspace_request"),
   workspaceId: z.string(),
@@ -3343,6 +3368,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ProjectCreateDirectoryRequestSchema,
   WorkspaceGithubSearchRepositoriesRequestSchema,
   ProjectGithubCloneRequestSchema,
+  ProjectForgejoSearchRepositoriesRequestSchema,
+  ProjectForgejoCloneRequestSchema,
   ArchiveWorkspaceRequestSchema,
   WorkspaceCreateRequestSchema,
   AgentCreateRequestSchema,
@@ -3702,6 +3729,8 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceGithubRepositorySearch: z.boolean().optional(),
         // COMPAT(projectCreateDirectory): added in v0.1.108, remove gate after 2027-01-15.
         projectCreateDirectory: z.boolean().optional(),
+        // Only advertised when the daemon config sets features.forgejoProjects.
+        projectForgejoClone: z.boolean().optional(),
         // COMPAT(projectList): added in v0.2.4, drop the gate when floor >= v0.2.4.
         projectList: z.boolean().optional(),
         // COMPAT(commitsList): added in v0.1.110, remove gate after 2027-01-16.
@@ -4528,6 +4557,40 @@ export const ProjectGithubCloneResponseSchema = z.object({
     project: WorkspaceProjectDescriptorPayloadSchema.nullable(),
     error: z.string().nullable(),
   }),
+});
+
+export const ProjectForgejoSearchRepositoriesResponseSchema = z.object({
+  type: z.literal("project.forgejo.search_repositories.response"),
+  payload: z.discriminatedUnion("status", [
+    z.object({
+      status: z.literal("success"),
+      requestId: z.string(),
+      host: z.string(),
+      owner: z.string(),
+      repositories: z.array(ForgejoRepositorySchema),
+    }),
+    z.object({
+      status: z.literal("error"),
+      requestId: z.string(),
+      error: z.string(),
+    }),
+  ]),
+});
+
+export const ProjectForgejoCloneResponseSchema = z.object({
+  type: z.literal("project.forgejo.clone.response"),
+  payload: z.discriminatedUnion("status", [
+    z.object({
+      status: z.literal("success"),
+      requestId: z.string(),
+      project: WorkspaceProjectDescriptorPayloadSchema,
+    }),
+    z.object({
+      status: z.literal("error"),
+      requestId: z.string(),
+      error: z.string(),
+    }),
+  ]),
 });
 
 export const StartWorkspaceScriptResponseMessageSchema = z.object({
@@ -6921,6 +6984,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   OpenProjectResponseMessageSchema,
   WorkspaceGithubSearchRepositoriesResponseSchema,
   ProjectGithubCloneResponseSchema,
+  ProjectForgejoSearchRepositoriesResponseSchema,
+  ProjectForgejoCloneResponseSchema,
   StartWorkspaceScriptResponseMessageSchema,
   WorkspaceScriptListResponseMessageSchema,
   WorkspaceScriptStartResponseMessageSchema,
@@ -7130,6 +7195,11 @@ export type WorkspaceGithubSearchRepositoriesResponse = z.infer<
 >;
 export type GithubRepository = z.infer<typeof GithubRepositorySchema>;
 export type ProjectGithubCloneResponse = z.infer<typeof ProjectGithubCloneResponseSchema>;
+export type ForgejoRepository = z.infer<typeof ForgejoRepositorySchema>;
+export type ProjectForgejoSearchRepositoriesResponse = z.infer<
+  typeof ProjectForgejoSearchRepositoriesResponseSchema
+>;
+export type ProjectForgejoCloneResponse = z.infer<typeof ProjectForgejoCloneResponseSchema>;
 export type StartWorkspaceScriptResponseMessage = z.infer<
   typeof StartWorkspaceScriptResponseMessageSchema
 >;
@@ -7453,6 +7523,10 @@ export type WorkspaceGithubSearchRepositoriesRequest = z.infer<
 >;
 export type ProjectGithubCloneRequest = z.infer<typeof ProjectGithubCloneRequestSchema>;
 export type ProjectGithubCloneProtocol = z.infer<typeof ProjectGithubCloneProtocolSchema>;
+export type ProjectForgejoSearchRepositoriesRequest = z.infer<
+  typeof ProjectForgejoSearchRepositoriesRequestSchema
+>;
+export type ProjectForgejoCloneRequest = z.infer<typeof ProjectForgejoCloneRequestSchema>;
 export type ArchiveWorkspaceRequest = z.infer<typeof ArchiveWorkspaceRequestSchema>;
 export type WorkspaceClearAttentionRequest = z.infer<typeof WorkspaceClearAttentionRequestSchema>;
 export type WorkspaceMarkUnreadRequest = z.infer<typeof WorkspaceMarkUnreadRequestSchema>;

@@ -313,6 +313,7 @@ interface SessionForTestOptions {
   projectRegistry?: Partial<SessionOptions["projectRegistry"]>;
   terminalManager?: SessionOptions["terminalManager"];
   serviceProxy?: SessionOptions["serviceProxy"];
+  forgejoProjects?: SessionOptions["forgejoProjects"];
   scriptRuntimeStore?: SessionOptions["scriptRuntimeStore"];
   getDaemonTcpPort?: () => number | null;
   getDaemonTcpHost?: () => string | null;
@@ -415,6 +416,7 @@ function createSessionForTest(options: SessionForTestOptions = {}): Session {
     scheduleService: asScheduleService(),
     checkoutDiffManager: asCheckoutDiffManager(checkoutDiffManager),
     github: asGitHubService(github),
+    ...(options.forgejoProjects ? { forgejoProjects: options.forgejoProjects } : {}),
     workspaceGitService: asWorkspaceGitService(workspaceGitService),
     daemonConfigStore: asDaemonConfigStore({
       get: vi.fn(() => ({
@@ -948,6 +950,147 @@ describe("project command-center RPCs", () => {
       {
         type: "workspace.github.search_repositories.response",
         payload: expected,
+      },
+    ]);
+  });
+
+  test("lists Forgejo repositories with the configured host and owner", async () => {
+    const messages: SessionOutboundMessage[] = [];
+    const repository = {
+      name: "app",
+      nameWithOwner: "team/app",
+      description: null,
+      updatedAt: "2026-10-01T10:00:00Z",
+    };
+    const search = vi.fn().mockResolvedValue([repository]);
+    const session = createSessionForTest({
+      messages,
+      forgejoProjects: { host: "forgejo.example.com", owner: "team", search, checkout: vi.fn() },
+    });
+
+    await session.handleMessage({
+      type: "project.forgejo.search_repositories.request",
+      query: "ap",
+      requestId: "req-forgejo",
+    });
+
+    expect(search).toHaveBeenCalledWith("ap");
+    expect(messages).toEqual([
+      {
+        type: "project.forgejo.search_repositories.response",
+        payload: {
+          status: "success",
+          requestId: "req-forgejo",
+          host: "forgejo.example.com",
+          owner: "team",
+          repositories: [repository],
+        },
+      },
+    ]);
+  });
+
+  test("refuses Forgejo requests when the daemon config has no Forgejo projects", async () => {
+    const messages: SessionOutboundMessage[] = [];
+    const session = createSessionForTest({ messages });
+
+    await session.handleMessage({
+      type: "project.forgejo.clone.request",
+      name: "app",
+      create: true,
+      requestId: "req-clone",
+    });
+
+    expect(messages).toEqual([
+      {
+        type: "project.forgejo.clone.response",
+        payload: {
+          status: "error",
+          requestId: "req-clone",
+          error: "Forgejo projects are not configured",
+        },
+      },
+    ]);
+  });
+
+  test("registers the Forgejo checkout as a Project", async () => {
+    const checkoutPath = realpathSync(mkdtempSync(join(tmpdir(), "paseo-forgejo-session-")));
+    const messages: SessionOutboundMessage[] = [];
+    const checkout = vi.fn().mockResolvedValue(checkoutPath);
+    const session = createSessionForTest({
+      messages,
+      forgejoProjects: { host: "forgejo.example.com", owner: "team", search: vi.fn(), checkout },
+      projectRegistry: {
+        getOrCreateActiveByRoot: vi.fn(async (input) =>
+          createPersistedProjectRecord({
+            projectId: "prj_forgejo",
+            rootPath: input.rootPath,
+            kind: input.kind,
+            displayName: input.displayName,
+            createdAt: input.timestamp,
+            updatedAt: input.timestamp,
+          }),
+        ),
+      },
+      workspaceGitService: {
+        getCheckout: vi.fn(async (cwd: string) => ({
+          cwd,
+          isGit: false as const,
+          currentBranch: null,
+          remoteUrl: null,
+          worktreeRoot: null,
+          isPaseoOwnedWorktree: false as const,
+          mainRepoRoot: null,
+        })),
+      },
+    });
+
+    try {
+      await session.handleMessage({
+        type: "project.forgejo.clone.request",
+        name: "app",
+        create: true,
+        requestId: "req-clone",
+      });
+
+      expect(checkout).toHaveBeenCalledWith({ name: "app", create: true });
+      expect(messages).toMatchObject([
+        {
+          type: "project.forgejo.clone.response",
+          payload: {
+            status: "success",
+            requestId: "req-clone",
+            project: { projectId: "prj_forgejo", projectRootPath: checkoutPath },
+          },
+        },
+      ]);
+    } finally {
+      rmSync(checkoutPath, { recursive: true, force: true });
+    }
+  });
+
+  test("reports a failed Forgejo checkout", async () => {
+    const messages: SessionOutboundMessage[] = [];
+    const session = createSessionForTest({
+      messages,
+      forgejoProjects: {
+        host: "forgejo.example.com",
+        owner: "team",
+        search: vi.fn(),
+        checkout: vi.fn().mockRejectedValue(new Error("team/ghost does not exist")),
+      },
+    });
+
+    await session.handleMessage({
+      type: "project.forgejo.clone.request",
+      name: "ghost",
+      create: false,
+      requestId: "req-clone",
+    });
+
+    expect(messages).toEqual([
+      {
+        type: "project.forgejo.clone.response",
+        payload: { status: "error", requestId: "req-clone", error: "team/ghost does not exist" },
       },
     ]);
   });

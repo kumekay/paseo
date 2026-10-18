@@ -161,6 +161,19 @@ const FeatureWebUiSchema = z
   })
   .strict();
 
+const FeatureForgejoProjectsSchema = z
+  .object({
+    // Matched against the daemon host's `tea login list`.
+    host: z.string().trim().min(1),
+    // User or organization whose repositories are listed and created.
+    owner: z.string().trim().min(1),
+    // Receives the clone URL as its last argument and prints the checkout directory last.
+    cloneCommand: z.tuple([z.string().min(1)], z.string().min(1)),
+  })
+  .strict();
+
+export type ForgejoProjectsConfig = z.infer<typeof FeatureForgejoProjectsSchema>;
+
 const StructuredGenerationProviderConfigSchema = z
   .object({
     provider: z.string().min(1),
@@ -344,6 +357,7 @@ export const PersistedConfigSchema = z
         dictation: FeatureDictationSchema.optional(),
         voiceMode: FeatureVoiceModeSchema.optional(),
         webUi: FeatureWebUiSchema.optional(),
+        forgejoProjects: FeatureForgejoProjectsSchema.optional(),
       })
       .strict()
       .optional(),
