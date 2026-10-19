@@ -98,6 +98,8 @@ const DEFAULT_PI_THINKING_LEVEL: PiThinkingLevel = "medium";
 const PI_BINARY_COMMAND = process.env.PI_COMMAND ?? process.env.PI_ACP_PI_COMMAND ?? "pi";
 const PASEO_PI_TREE_EXTENSION_COMMAND = "paseo_tree";
 const PASEO_PI_CAPTURE_EXTENSION_COMMAND = "paseo_capture_entries";
+const PASEO_PI_SCOPED_MODELS_COMMAND = "paseo_scoped_models";
+const PASEO_PI_SCOPED_MODELS_MARKER = "PASEO_SCOPED_MODELS";
 const PASEO_PI_REWIND_ENTRY_TYPE = "paseo_rewind";
 const PASEO_PI_ENTRY_CAPTURE_MARKER = "PASEO_ENTRY_CAPTURE";
 const PASEO_PI_SUBMITTED_USER_ENTRY_MARKER = "PASEO_SUBMITTED_USER_ENTRY";
@@ -767,6 +769,68 @@ function createPiPaseoExtensionFile({
     path: filePath,
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
+}
+
+// Pi's RPC has no command for scoped models, but its extension API has ctx.scopedModels.
+// Only the catalog session loads this extension, so agent sessions do not list the command.
+function createPiModelScopeExtensionFile(): PiTempFile {
+  const dir = mkdtempSync(join(tmpdir(), "paseo-pi-scope-"));
+  const filePath = join(dir, "paseo-model-scope.mjs");
+  writeFileSync(
+    filePath,
+    `
+	export default function paseoModelScope(pi) {
+	  pi.registerCommand("${PASEO_PI_SCOPED_MODELS_COMMAND}", {
+	    description: "Internal Paseo model scope bridge",
+	    handler: async (_args, ctx) => {
+	      const models = (ctx.scopedModels ?? []).map(({ model }) => model.provider + "/" + model.id);
+	      ctx.ui.notify("${PASEO_PI_SCOPED_MODELS_MARKER} " + JSON.stringify({ models }), "info");
+	    },
+	  });
+	}
+`.trimStart(),
+    "utf8",
+  );
+  return {
+    path: filePath,
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+async function readPiScopedModelIds(session: PiRuntimeSession): Promise<string[] | null> {
+  const commands = await session.getCommands();
+  // Pi sends an unknown slash command, or a prompt template with the same name, to the model.
+  const isRegistered = commands.some(
+    (command) => command.source === "extension" && command.name === PASEO_PI_SCOPED_MODELS_COMMAND,
+  );
+  if (!isRegistered) {
+    return null;
+  }
+  const payloads: Record<string, unknown>[] = [];
+  const unsubscribe = session.onEvent((event) => {
+    if (event.type !== "extension_ui_request" || event.method !== "notify") return;
+    const message = optionalString(event.message);
+    const payload = message
+      ? parseExtensionMarkerPayload(message, PASEO_PI_SCOPED_MODELS_MARKER)
+      : null;
+    if (payload) payloads.push(payload);
+  });
+  try {
+    // Pi runs an extension command to the end before it answers the prompt, so the notify comes first.
+    await session.prompt(`/${PASEO_PI_SCOPED_MODELS_COMMAND}`);
+  } finally {
+    unsubscribe();
+  }
+  const models = payloads[0]?.models;
+  return Array.isArray(models) ? models.filter((id): id is string => typeof id === "string") : null;
+}
+
+function selectScopedPiModels(models: PiModel[], scopedModelIds: string[] | null): PiModel[] {
+  if (!scopedModelIds?.length) {
+    return models;
+  }
+  const modelsById = new Map(models.map((model) => [`${model.provider}/${model.id}`, model]));
+  return scopedModelIds.flatMap((id) => modelsById.get(id) ?? []);
 }
 
 function combineCleanup(cleanups: Array<(() => void) | undefined>): (() => void) | undefined {
@@ -2670,12 +2734,14 @@ export class PiRpcAgentClient implements AgentClient {
       return closePromise;
     };
     const handleAbort = () => void closeSession().catch(() => undefined);
+    const scopeExtension = createPiModelScopeExtensionFile();
     context?.signal.addEventListener("abort", handleAbort, { once: true });
     try {
       await runProviderRefreshActivity(context, "runtime.start", async () => {
         runtimeSession = await runtime.startSession({
           cwd: options.scope === "global" ? homedir() : options.cwd,
           signal: context?.signal,
+          extensionPaths: [scopeExtension.path],
         });
         if (context?.signal.aborted) await closeSession();
       });
@@ -2690,8 +2756,15 @@ export class PiRpcAgentClient implements AgentClient {
         "get_state",
         () => catalogSession.getState(),
       );
+      // Pi resolves `enabledModels` (or `--models`) into the short list its model cycling uses.
+      const scopedModelIds = await runProviderRefreshActivity(context, "get_scoped_models", () =>
+        readPiScopedModelIds(catalogSession),
+      );
+      if (scopedModelIds === null) {
+        this.logger.warn("Pi did not report its scoped models; listing every available model");
+      }
       const models = transformPiModels(
-        piModels.map((model) => {
+        selectScopedPiModels(piModels, scopedModelIds).map((model) => {
           const mapped = mapPiModel(model, PI_PROVIDER);
           const isConfigured =
             model.provider === configuredModel?.provider && model.id === configuredModel?.id;
@@ -2702,7 +2775,11 @@ export class PiRpcAgentClient implements AgentClient {
       return { models, modes: [] };
     } finally {
       context?.signal.removeEventListener("abort", handleAbort);
-      await closeSession();
+      try {
+        await closeSession();
+      } finally {
+        scopeExtension.cleanup();
+      }
     }
   }
 

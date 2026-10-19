@@ -48,6 +48,8 @@ const RESTRICTED_THINKING_MODEL: PiModel = {
   },
 };
 
+const PI_SCOPED_MODELS_COMMAND = { name: "paseo_scoped_models", source: "extension" } as const;
+
 interface PiThinkingCatalogCase {
   name: string;
   model: PiModel;
@@ -2847,6 +2849,124 @@ describe("PiRpcAgentClient", () => {
 
     expect(catalog.models.filter((model) => model.isDefault).map((model) => model.id)).toEqual([
       "zai/glm-5.3",
+    ]);
+  });
+
+  test("lists only the models Pi scopes with enabledModels, in scope order", async () => {
+    const pi = new FakePi();
+    const gpt = { provider: "openai", id: "gpt-6", name: "GPT-6", reasoning: true };
+    const glm = { provider: "zai", id: "glm-5.3", name: "GLM-5.3", reasoning: true };
+    const kimi = { provider: "kimi-coding", id: "kimi-k3", name: "Kimi K3", reasoning: true };
+    pi.queueSessionSetup((session) => {
+      session.commands = [PI_SCOPED_MODELS_COMMAND];
+      session.models = [gpt, glm, kimi];
+      session.scopedModels = [kimi, gpt];
+      session.state = { ...session.state, model: gpt };
+    });
+
+    const catalog = await createClient(pi).fetchCatalog({
+      scope: "workspace",
+      cwd: "/workspace/project",
+      force: false,
+    });
+
+    expect(catalog.models.map((model) => model.id)).toEqual([
+      "kimi-coding/kimi-k3",
+      "openai/gpt-6",
+    ]);
+    expect(catalog.models.filter((model) => model.isDefault).map((model) => model.id)).toEqual([
+      "openai/gpt-6",
+    ]);
+  });
+
+  test("lists every available model when Pi has no scoped models", async () => {
+    const pi = new FakePi();
+    pi.queueSessionSetup((session) => {
+      session.commands = [PI_SCOPED_MODELS_COMMAND];
+      session.models = [
+        { provider: "openai", id: "gpt-6", name: "GPT-6", reasoning: true },
+        { provider: "zai", id: "glm-5.3", name: "GLM-5.3", reasoning: true },
+      ];
+    });
+
+    const catalog = await createClient(pi).fetchCatalog({
+      scope: "workspace",
+      cwd: "/workspace/project",
+      force: false,
+    });
+
+    expect(catalog.models.map((model) => model.id)).toEqual(["openai/gpt-6", "zai/glm-5.3"]);
+  });
+
+  test("never prompts Pi for its scope when no extension registered the scope command", async () => {
+    const pi = new FakePi();
+    const gpt = { provider: "openai", id: "gpt-6", name: "GPT-6", reasoning: true };
+    pi.queueSessionSetup((session) => {
+      // Pi expands a prompt template and sends it to the model.
+      session.commands = [{ name: "paseo_scoped_models", source: "prompt" }];
+      session.models = [gpt];
+      session.scopedModels = [gpt];
+    });
+
+    const catalog = await createClient(pi).fetchCatalog({
+      scope: "workspace",
+      cwd: "/workspace/project",
+      force: false,
+    });
+
+    expect(pi.latestSession().prompts).toEqual([]);
+    expect(catalog.models.map((model) => model.id)).toEqual(["openai/gpt-6"]);
+  });
+
+  test("loads a catalog-only Pi extension that reports ctx.scopedModels", async () => {
+    const pi = new FakePi();
+    let extensionPath = "";
+    let extensionSource = "";
+    pi.queueSessionSetup(() => {
+      extensionPath = pi.recordedLaunches.at(-1)?.extensionPaths?.[0] ?? "";
+      extensionSource = readUtf8File(extensionPath);
+    });
+
+    await createClient(pi).fetchCatalog({
+      scope: "workspace",
+      cwd: "/workspace/project",
+      force: false,
+    });
+
+    expect(existsSync(extensionPath)).toBe(false);
+    const copyDir = mkdtempSync(path.join(tmpdir(), "paseo-pi-scope-test-"));
+    onTestFinished(() => rmSync(copyDir, { recursive: true, force: true }));
+    const copyPath = path.join(copyDir, "scope.mjs");
+    writeFileSync(copyPath, extensionSource);
+    const handlers = new Map<string, (args: string, ctx: unknown) => Promise<void>>();
+    const extension = (await import(pathToFileURL(copyPath).href)) as {
+      default: (piApi: {
+        registerCommand: (
+          name: string,
+          options: { handler: (args: string, ctx: unknown) => Promise<void> },
+        ) => void;
+      }) => void;
+    };
+    extension.default({
+      registerCommand: (name, options) => handlers.set(name, options.handler),
+    });
+    const notifications: string[] = [];
+    const ui = { notify: (message: string) => notifications.push(message) };
+
+    await handlers.get("paseo_scoped_models")?.("", {
+      ui,
+      scopedModels: [
+        { model: { provider: "kimi-coding", id: "kimi-k3" } },
+        { model: { provider: "openai", id: "gpt-6" }, thinkingLevel: "high" },
+      ],
+    });
+    // Pi versions without ctx.scopedModels report no scope.
+    await handlers.get("paseo_scoped_models")?.("", { ui });
+
+    expect([...handlers.keys()]).toEqual(["paseo_scoped_models"]);
+    expect(notifications).toEqual([
+      'PASEO_SCOPED_MODELS {"models":["kimi-coding/kimi-k3","openai/gpt-6"]}',
+      'PASEO_SCOPED_MODELS {"models":[]}',
     ]);
   });
 
