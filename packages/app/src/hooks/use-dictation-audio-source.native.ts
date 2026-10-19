@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Buffer } from "buffer";
 import { useState } from "react";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 
 import { createAudioEngine } from "@/audio";
 
@@ -8,6 +9,14 @@ import type {
   DictationAudioSource,
   DictationAudioSourceConfig,
 } from "./use-dictation-audio-source.types";
+
+// Keep the screen on while recording. When the screen turns off, the app goes
+// to the background, and Android gives background apps only silence.
+const KEEP_AWAKE_TAG = "paseo:dictation";
+
+function releaseKeepAwake(): void {
+  void deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => undefined);
+}
 
 export function useDictationAudioSource(config: DictationAudioSourceConfig): DictationAudioSource {
   const onPcmSegmentRef = useRef(config.onPcmSegment);
@@ -34,6 +43,7 @@ export function useDictationAudioSource(config: DictationAudioSourceConfig): Dic
           onErrorRef.current?.(error);
         },
         onInterruption: () => {
+          releaseKeepAwake();
           onInterruptionRef.current?.();
         },
         onCaptureAvailabilityChange: (available) => setIsPaused(!available),
@@ -53,9 +63,13 @@ export function useDictationAudioSource(config: DictationAudioSourceConfig): Dic
     const engine = getOrCreateEngine();
     await engine.initialize();
     await engine.startCapture();
+    await activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch((error) => {
+      console.warn("[Dictation] Failed to activate keep-awake:", error);
+    });
   }, [getOrCreateEngine]);
 
   const stop = useCallback(async () => {
+    releaseKeepAwake();
     await engineRef.current?.stopCapture();
     setVolume(0);
   }, []);
@@ -64,6 +78,7 @@ export function useDictationAudioSource(config: DictationAudioSourceConfig): Dic
     return () => {
       const engine = engineRef.current;
       engineRef.current = null;
+      releaseKeepAwake();
       void engine?.destroy().catch(() => undefined);
     };
   }, []);
