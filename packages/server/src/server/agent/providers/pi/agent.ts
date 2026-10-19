@@ -799,8 +799,11 @@ function createPiModelScopeExtensionFile(): PiTempFile {
 
 async function readPiScopedModelIds(session: PiRuntimeSession): Promise<string[] | null> {
   const commands = await session.getCommands();
-  // Pi sends an unknown slash command to the model as a normal prompt.
-  if (!commands.some((command) => command.name === PASEO_PI_SCOPED_MODELS_COMMAND)) {
+  // Pi sends an unknown slash command, or a prompt template with the same name, to the model.
+  const isRegistered = commands.some(
+    (command) => command.source === "extension" && command.name === PASEO_PI_SCOPED_MODELS_COMMAND,
+  );
+  if (!isRegistered) {
     return null;
   }
   const payloads: Record<string, unknown>[] = [];
@@ -2761,8 +2764,11 @@ export class PiRpcAgentClient implements AgentClient {
       return { models, modes: [] };
     } finally {
       context?.signal.removeEventListener("abort", handleAbort);
-      await closeSession();
-      scopeExtension.cleanup();
+      try {
+        await closeSession();
+      } finally {
+        scopeExtension.cleanup();
+      }
     }
   }
 

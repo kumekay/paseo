@@ -2856,10 +2856,12 @@ describe("PiRpcAgentClient", () => {
     expect(catalog.models.map((model) => model.id)).toEqual(["openai/gpt-6", "zai/glm-5.3"]);
   });
 
-  test("never prompts Pi for its scope when the scope command is not registered", async () => {
+  test("never prompts Pi for its scope when no extension registered the scope command", async () => {
     const pi = new FakePi();
     const gpt = { provider: "openai", id: "gpt-6", name: "GPT-6", reasoning: true };
     pi.queueSessionSetup((session) => {
+      // Pi expands a prompt template and sends it to the model.
+      session.commands = [{ name: "paseo_scoped_models", source: "prompt" }];
       session.models = [gpt];
       session.scopedModels = [gpt];
     });

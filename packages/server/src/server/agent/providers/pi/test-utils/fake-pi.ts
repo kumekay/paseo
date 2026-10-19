@@ -130,7 +130,7 @@ export class FakePiSession implements PiRuntimeSession {
   }> = [];
   setModelResult: PiModel | null = null;
   models: PiModel[] = [];
-  // Pi's `ctx.scopedModels`, reported only while `paseo_scoped_models` is in `commands`.
+  // Pi's `ctx.scopedModels`, reported only while `commands` has the `paseo_scoped_models` extension command.
   scopedModels: PiModel[] = [];
   messages: PiAgentMessage[] = [];
   stats: PiSessionStats = {
@@ -474,7 +474,10 @@ export class FakePiSession implements PiRuntimeSession {
     if (message !== `/${commandName}`) {
       return;
     }
-    if (!this.commands.some((command) => command.name === commandName)) {
+    const isRegistered = this.commands.some(
+      (command) => command.source === "extension" && command.name === commandName,
+    );
+    if (!isRegistered) {
       return;
     }
     this.emit({
