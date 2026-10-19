@@ -130,6 +130,8 @@ export class FakePiSession implements PiRuntimeSession {
   }> = [];
   setModelResult: PiModel | null = null;
   models: PiModel[] = [];
+  // Pi's `ctx.scopedModels`, reported only while `paseo_scoped_models` is in `commands`.
+  scopedModels: PiModel[] = [];
   messages: PiAgentMessage[] = [];
   stats: PiSessionStats = {
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
@@ -198,6 +200,7 @@ export class FakePiSession implements PiRuntimeSession {
     }
     this.handleTreeNavigationCommand(message);
     this.handleEntryCaptureCommand(message);
+    this.handleScopedModelsCommand(message);
     return this.promptAck;
   }
 
@@ -464,6 +467,24 @@ export class FakePiSession implements PiRuntimeSession {
       payload.requestId,
       typeof payload.reason === "string" ? payload.reason : "command",
     );
+  }
+
+  private handleScopedModelsCommand(message: string): void {
+    const commandName = "paseo_scoped_models";
+    if (message !== `/${commandName}`) {
+      return;
+    }
+    if (!this.commands.some((command) => command.name === commandName)) {
+      return;
+    }
+    this.emit({
+      type: "extension_ui_request",
+      id: "scoped-models",
+      method: "notify",
+      message: `PASEO_SCOPED_MODELS ${JSON.stringify({
+        models: this.scopedModels.map((model) => `${model.provider}/${model.id}`),
+      })}`,
+    });
   }
 
   emitEntryCapture(requestId?: string, reason = "test"): void {
